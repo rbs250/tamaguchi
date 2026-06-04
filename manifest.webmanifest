@@ -1,0 +1,19 @@
+{
+  "name": "Tamaguchi",
+  "short_name": "Tamaguchi",
+  "description": "A classic 8-bit virtual pet that remembers your visits.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#9dcbd0",
+  "theme_color": "#f05f5f",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
