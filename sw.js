@@ -1,11 +1,14 @@
-const CACHE_NAME = "tamaguchi-v5";
+const CACHE_NAME = "tamaguchi-v6";
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
   "./icon.svg",
   "./assets/tamaguchi-device.png",
-  "./assets/tamaguchi-device-cutout.png"
+  "./assets/tamaguchi-device-cutout.png",
+  "./assets/key-a-web.png",
+  "./assets/key-b-web.png",
+  "./assets/key-c-web.png"
 ];
 
 self.addEventListener("install", (event) => {

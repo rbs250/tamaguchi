@@ -134,33 +134,43 @@
 
     .control {
       position: absolute;
-      top: 76.7%;
-      width: 10.8%;
+      width: 7.35%;
       border: 0;
       border-radius: 50%;
       aspect-ratio: 1;
       background: transparent;
-      color: #5c3013;
-      font: 900 clamp(0.95rem, 4.2vw, 1.95rem) / 1 "Courier New", Consolas, monospace;
-      text-shadow: 0 1px 0 rgba(255, 247, 218, 0.8);
       display: grid;
       place-items: center;
       box-shadow: none;
       cursor: pointer;
       pointer-events: auto;
       touch-action: manipulation;
+      font-size: 0;
+      z-index: 3;
+      padding: 0;
+    }
+
+    .control img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      pointer-events: none;
+      image-rendering: auto;
     }
 
     .control[data-key="a"] {
-      left: 31.7%;
+      left: 32.75%;
+      top: 76.18%;
     }
 
     .control[data-key="b"] {
-      left: 45.1%;
+      left: 45.9%;
+      top: 78.05%;
     }
 
     .control[data-key="c"] {
-      left: 58.6%;
+      left: 58.98%;
+      top: 76.18%;
     }
 
     .control:active,
@@ -209,9 +219,18 @@
         </div>
       </div>
       <div class="controls" aria-label="Game controls">
-        <button class="control" data-key="a" aria-label="A select">A</button>
-        <button class="control" data-key="b" aria-label="B confirm">B</button>
-        <button class="control" data-key="c" aria-label="C cancel">C</button>
+        <button class="control" data-key="a" aria-label="A select">
+          <img src="assets/key-a-web.png" alt="" aria-hidden="true">
+          A
+        </button>
+        <button class="control" data-key="b" aria-label="B confirm">
+          <img src="assets/key-b-web.png" alt="" aria-hidden="true">
+          B
+        </button>
+        <button class="control" data-key="c" aria-label="C cancel">
+          <img src="assets/key-c-web.png" alt="" aria-hidden="true">
+          C
+        </button>
       </div>
       <div class="labels" aria-hidden="true">
         <span>SELECT</span>
