@@ -1,4 +1,4 @@
-const CACHE_NAME = "tamaguchi-v9";
+const CACHE_NAME = "tamaguchi-v10";
 const ASSETS = [
   "./",
   "./index.html",

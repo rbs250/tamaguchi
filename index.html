@@ -785,10 +785,10 @@
         feedback("press");
 
         if (state.dead) {
-          if ((key === "a" && heldKeys.has("c")) || (key === "c" && heldKeys.has("a"))) {
+          if (key === "b") {
             startNewGeneration();
           } else {
-            setMessage("A+C NEW", 1800);
+            setMessage("B NEW", 1800);
           }
           save();
           draw();
@@ -1353,7 +1353,7 @@
         px(65, 60, 22, 29, "#b9c986");
         text("RIP", 67, 64, 8, ink);
         text(clipText(state.lastForm || "PET", 8), 63, 76, 7, ink);
-        text("A+C", 66, 92, 8, ink);
+        text("B NEW", 61, 92, 8, ink);
         if (state.deathCause) text(clipText(state.deathCause, 10), 57, 113, 7, ink);
       }
 
