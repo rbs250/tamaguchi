@@ -10,6 +10,12 @@
   "theme_color": "#f05f5f",
   "icons": [
     {
+      "src": "assets/tamaguchi-device.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
       "src": "icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
