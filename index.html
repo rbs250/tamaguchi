@@ -255,6 +255,13 @@
       const STATUS_PAGES = 5;
       const STAGES = ["EGG", "BABY", "CHILD", "TEEN", "ADULT"];
       const ADULT_FORMS = ["MAME", "KUCHI", "MASK", "NYORO"];
+      const LCD_ASSET_NAMES = [
+        "pet-egg", "pet-baby", "pet-child", "pet-teen", "pet-adult-mame", "pet-adult-kuchi", "pet-adult-mask", "pet-adult-nyoro",
+        "icon-status", "icon-food", "icon-game", "icon-clean", "icon-med", "icon-light", "icon-discipline", "icon-attention",
+        "obj-poop", "obj-meal", "obj-snack", "obj-med", "obj-sparkle", "obj-sick", "obj-sleep", "obj-bubbles", "obj-heart", "obj-tear", "obj-clock", "obj-battery",
+        "game-cup-left", "game-cup-right", "game-star", "game-ball", "game-flag", "game-burst", "game-arrow-left", "game-arrow-right",
+        "emo-smile", "emo-sad", "emo-sick", "emo-angry", "emo-sleepy", "emo-alert", "emo-music", "emo-heart", "emo-crack", "emo-call"
+      ];
 
       const menus = [
         { key: "status", label: "STAT" },
@@ -324,6 +331,12 @@
       let state = load();
       let animationTick = 0;
       let audioCtx = null;
+      const lcdSprites = Object.fromEntries(LCD_ASSET_NAMES.map((name) => {
+        const image = new Image();
+        image.onload = draw;
+        image.src = `assets/lcd/${name}.png`;
+        return [name, image];
+      }));
       registerVisit();
       applyTime(true);
       save();
@@ -872,6 +885,34 @@
         for (let i = 0; i < fill; i += 4) px(x + 36 + i, y + 2, 2, 3);
       }
 
+      function drawSpriteAt(name, x, y, maxW = null, maxH = null) {
+        const image = lcdSprites[name];
+        if (!image || !image.complete || !image.naturalWidth) return false;
+        const ratio = Math.min(
+          maxW ? maxW / image.naturalWidth : 1,
+          maxH ? maxH / image.naturalHeight : 1,
+          1
+        );
+        const width = Math.max(1, Math.round(image.naturalWidth * ratio));
+        const height = Math.max(1, Math.round(image.naturalHeight * ratio));
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(image, Math.round(x), Math.round(y), width, height);
+        return true;
+      }
+
+      function drawSprite(name, cx, cy, maxW = null, maxH = null) {
+        const image = lcdSprites[name];
+        if (!image || !image.complete || !image.naturalWidth) return false;
+        const ratio = Math.min(
+          maxW ? maxW / image.naturalWidth : 1,
+          maxH ? maxH / image.naturalHeight : 1,
+          1
+        );
+        const width = Math.max(1, Math.round(image.naturalWidth * ratio));
+        const height = Math.max(1, Math.round(image.naturalHeight * ratio));
+        return drawSpriteAt(name, cx - width / 2, cy - height / 2, maxW, maxH);
+      }
+
       function draw() {
         applyTime();
         animationTick += 1;
@@ -899,21 +940,31 @@
         for (let i = 0; i < menus.length; i += 1) {
           const x = 3 + i * 19;
           const active = state.mode === "idle" && state.menuIndex === i;
-          if (active) {
-            px(x - 1, 1, 17, 14, ink);
-          } else {
-            outline(x - 1, 1, 17, 14, ink);
-          }
-          drawIcon(menus[i].key, x + 1, 3, active ? bg : ink);
+          outline(x - 1, 1, 17, 14, ink);
+          if (active) px(x + 3, 13, 9, 2, ink);
+          drawIcon(menus[i].key, x + 1, 3, ink);
         }
 
         if (getNeedCount() > 0 && (animationTick % 32 < 16)) {
-          px(151, 3, 5, 9, ink);
-          px(153, 12, 2, 2, ink);
+          if (!drawSprite("emo-alert", 153, 8, 10, 11)) {
+            px(151, 3, 5, 9, ink);
+            px(153, 12, 2, 2, ink);
+          }
         }
       }
 
       function drawIcon(key, x, y, color) {
+        const iconMap = {
+          status: "icon-status",
+          food: "icon-food",
+          play: "icon-game",
+          clean: "icon-clean",
+          med: "icon-med",
+          light: "icon-light",
+          discipline: "icon-discipline",
+          attention: "icon-attention"
+        };
+        if (drawSpriteAt(iconMap[key], x + 1, y + 1, 13, 12)) return;
         const c = color;
         if (key === "status") {
           px(x, y + 8, 3, 3, c);
@@ -962,7 +1013,7 @@
       function drawRoom(dim) {
         const ink = dim ? "#2f3828" : "#2a3420";
         if (!state.lightOn && state.sleeping) {
-          text("ZZZ", 15, 31, 9, ink);
+          if (!drawSprite("obj-sleep", 18, 34, 18, 15)) text("ZZZ", 15, 31, 9, ink);
         }
 
         for (let x = 0; x < W; x += 6) px(x, 101, 3, 1, ink);
@@ -975,9 +1026,11 @@
         drawPet(75, 66, ink);
 
         if (state.sick) {
-          px(112, 45, 5, 5, ink);
-          px(114, 40, 1, 13, ink);
-          px(110, 44, 9, 1, ink);
+          if (!drawSprite("obj-sick", 114, 47, 16, 16)) {
+            px(112, 45, 5, 5, ink);
+            px(114, 40, 1, 13, ink);
+            px(110, 44, 9, 1, ink);
+          }
         }
 
         const clock = new Date();
@@ -987,6 +1040,7 @@
       }
 
       function drawPoop(x, y, ink) {
+        if (drawSprite("obj-poop", x + 7, y + 6, 14, 12)) return;
         px(x + 5, y, 4, 2, ink);
         px(x + 3, y + 2, 8, 3, ink);
         px(x + 1, y + 5, 12, 3, ink);
@@ -1000,6 +1054,15 @@
           return;
         }
         const bounce = state.sleeping ? 0 : (animationTick % 34 < 17 ? 0 : 1);
+        const spriteName = petSpriteName(stage);
+        if (drawSprite(spriteName, cx, cy + bounce, 36, 36)) {
+          if (!state.sleeping && (moodFace() === "sad" || moodFace() === "sick")) {
+            drawSprite(moodFace() === "sick" ? "emo-sick" : "emo-sad", cx + 24, cy - 12, 13, 13);
+          } else if (state.sleeping) {
+            drawSprite("obj-sleep", cx + 24, cy - 18, 16, 14);
+          }
+          return;
+        }
         const sprite = getSprite(stage);
         const scale = 2;
         const width = Math.max(...sprite.map((row) => row.length)) * scale;
@@ -1028,6 +1091,17 @@
         }
       }
 
+      function petSpriteName(stage) {
+        if (stage === 1) return "pet-baby";
+        if (stage === 2) return "pet-child";
+        if (stage === 3) return "pet-teen";
+        const form = (state.form || "MAME").toLowerCase();
+        if (form.includes("kuchi")) return "pet-adult-kuchi";
+        if (form.includes("mask")) return "pet-adult-mask";
+        if (form.includes("nyoro")) return "pet-adult-nyoro";
+        return "pet-adult-mame";
+      }
+
       function drawAdultForm(x, y, width, height, ink, bg) {
         const form = state.form || "MAME";
         if (form === "MAME") {
@@ -1048,6 +1122,11 @@
 
       function drawEgg(cx, cy, ink) {
         const wobble = animationTick % 48 < 24 ? 0 : 1;
+        if (drawSprite("pet-egg", cx + wobble, cy, 30, 36)) {
+          const left = Math.max(0, Math.ceil((state.hatchAt - Date.now()) / 1000));
+          text(left > 0 ? `${left}` : "!", cx - 4, cy + 14, 8, ink);
+          return;
+        }
         const x = Math.round(cx - 13 + wobble);
         const y = Math.round(cy - 18);
         const egg = [
@@ -1195,14 +1274,17 @@
           text(getNeedCount() > 0 ? "CALLING!" : "CONTENT", 17, 84, 8);
         } else if (page === 3) {
           const memo = state.memories && state.memories[0];
+          drawSprite("emo-heart", 28, 41, 13, 13);
           text("MEMORY", 54, 38, 8);
           text(memo ? clipText(memo.text, 17) : "NO MEMORY", 17, 56, 8);
           text(memo ? `${shortDuration(Date.now() - memo.at)} AGO` : "", 17, 70, 8);
           text(`CARE ${state.careScore || 0}`, 17, 84, 8);
         } else {
+          drawSprite("obj-clock", 124, 43, 14, 14);
           text(`VISIT ${state.visitCount || 0}`, 17, 42, 8);
           text(`LAST ${shortDuration(state.lastAwayMs || 0)}`, 17, 56, 8);
           text(`LONG ${shortDuration(state.longestAwayMs || 0)}`, 17, 70, 8);
+          drawSprite("obj-battery", 119, 84, 15, 8);
           text(`GEN ${state.generation || 1}`, 17, 84, 8);
         }
       }
@@ -1213,8 +1295,10 @@
         text("FOOD", 62, 36, 9);
         text(state.foodIndex === 0 ? ">" : " ", 39, 54, 9);
         text("MEAL", 52, 54, 9);
+        drawSprite("obj-meal", 108, 58, 15, 11);
         text(state.foodIndex === 1 ? ">" : " ", 39, 69, 9);
         text("SNACK", 52, 69, 9);
+        drawSprite("obj-snack", 110, 73, 15, 10);
       }
 
       function drawGame() {
@@ -1241,6 +1325,11 @@
         if (selected) {
           px(x - 5, y - 5, 34, 34);
           px(x - 3, y - 3, 30, 30, "#b9c986");
+        }
+        const cupName = x < 60 ? "game-cup-left" : "game-cup-right";
+        if (drawSprite(cupName, x + 12, y + 12, 22, 20)) {
+          if (hasStar) drawSprite("game-star", x + 12, y + 10, 14, 14);
+          return;
         }
         px(x + 3, y, 18, 4);
         px(x + 1, y + 4, 22, 15);
