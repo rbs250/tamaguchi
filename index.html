@@ -3,6 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#f05f5f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Tamaguchi">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <title>Tamaguchi</title>
   <style>
     :root {
@@ -232,7 +237,7 @@
         <span>BACK</span>
       </div>
     </section>
-    <p class="hint">A cycles icons. B uses one. C returns. Keyboard: Left, Enter, Esc.</p>
+    <p class="hint">A SELECT&nbsp;&nbsp; B OK&nbsp;&nbsp; C BACK</p>
   </main>
 
   <script>
@@ -244,7 +249,12 @@
       const SAVE_KEY = "tamaguchi.save.v1";
       const TICK_SECONDS = 12;
       const POOP_SECONDS = 80;
-      const STAGES = ["BABY", "CHILD", "TEEN", "ADULT"];
+      const HATCH_SECONDS = 45;
+      const VISIT_GAP_SECONDS = 75;
+      const OFFLINE_CAP_TICKS = 240;
+      const STATUS_PAGES = 5;
+      const STAGES = ["EGG", "BABY", "CHILD", "TEEN", "ADULT"];
+      const ADULT_FORMS = ["MAME", "KUCHI", "MASK", "NYORO"];
 
       const menus = [
         { key: "status", label: "STAT" },
@@ -257,10 +267,38 @@
         { key: "attention", label: "CALL" }
       ];
 
-      const defaults = () => ({
-        bornAt: Date.now(),
-        lastTick: Date.now(),
-        lastPoop: Date.now(),
+      const defaults = () => {
+        const now = Date.now();
+        return {
+        version: 2,
+        createdAt: now,
+        firstSeenAt: now,
+        bornAt: now,
+        hatchAt: now + HATCH_SECONDS * 1000,
+        eggHatched: false,
+        generation: 1,
+        lastStage: 0,
+        form: "EGG",
+        lastTick: now,
+        lastPoop: now,
+        lastVisitAt: null,
+        lastSeenAt: now,
+        lastAwayMs: 0,
+        totalAwayMs: 0,
+        longestAwayMs: 0,
+        visitCount: 0,
+        memories: [],
+        careScore: 0,
+        lastCareAt: null,
+        careActions: {
+          meals: 0,
+          snacks: 0,
+          games: 0,
+          cleans: 0,
+          meds: 0,
+          lights: 0,
+          trains: 0
+        },
         hunger: 72,
         happy: 70,
         energy: 78,
@@ -277,24 +315,44 @@
         mode: "idle",
         page: 0,
         foodIndex: 0,
-        message: "HELLO!",
+        message: "EGG!",
         messageUntil: Date.now() + 2500,
         game: null
-      });
+      };
+      };
 
       let state = load();
       let animationTick = 0;
+      let audioCtx = null;
+      registerVisit();
+      applyTime(true);
+      save();
 
       function load() {
+        const base = defaults();
         try {
-          const saved = JSON.parse(localStorage.getItem(SAVE_KEY));
-          return { ...defaults(), ...saved, mode: "idle", game: null, message: "I'M BACK!", messageUntil: Date.now() + 1800 };
+          const raw = localStorage.getItem(SAVE_KEY);
+          if (!raw) return base;
+          const saved = JSON.parse(raw);
+          if (!saved) return base;
+          const merged = { ...base, ...saved, mode: "idle", game: null };
+          merged.version = 2;
+          merged.memories = Array.isArray(saved.memories) ? saved.memories.slice(0, 8) : [];
+          merged.careActions = { ...base.careActions, ...(saved.careActions || {}) };
+          if (saved.eggHatched === undefined) {
+            merged.eggHatched = true;
+            merged.hatchAt = merged.bornAt;
+            merged.lastStage = Math.max(1, saved.lastStage || 1);
+            merged.form = saved.form || STAGES[Math.min(merged.lastStage, STAGES.length - 1)];
+          }
+          return merged;
         } catch {
-          return defaults();
+          return base;
         }
       }
 
       function save() {
+        state.lastSeenAt = Date.now();
         const saved = { ...state, game: null, mode: "idle" };
         localStorage.setItem(SAVE_KEY, JSON.stringify(saved));
       }
@@ -307,16 +365,73 @@
         return clamp(Math.round(value + delta));
       }
 
+      function shortDuration(ms) {
+        const seconds = Math.max(0, Math.floor(ms / 1000));
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        if (days > 0) return `${days}D ${hours}H`;
+        if (hours > 0) return `${hours}H ${minutes}M`;
+        if (minutes > 0) return `${minutes}M`;
+        return `${seconds}S`;
+      }
+
+      function clipText(value, max = 15) {
+        const textValue = String(value || "");
+        return textValue.length > max ? textValue.slice(0, max - 1) + "." : textValue;
+      }
+
+      function remember(textValue, at = Date.now()) {
+        state.memories = Array.isArray(state.memories) ? state.memories : [];
+        const last = state.memories[0];
+        if (last && last.text === textValue && at - last.at < 10000) return;
+        state.memories.unshift({ at, text: textValue });
+        state.memories = state.memories.slice(0, 8);
+      }
+
+      function registerVisit() {
+        const now = Date.now();
+        const previous = state.lastSeenAt || state.lastVisitAt || state.lastTick || now;
+        const awayMs = Math.max(0, now - previous);
+        state.visitCount = (state.visitCount || 0) + 1;
+        state.lastAwayMs = awayMs;
+
+        if (awayMs >= VISIT_GAP_SECONDS * 1000) {
+          state.totalAwayMs = Math.max(0, state.totalAwayMs || 0) + awayMs;
+          state.longestAwayMs = Math.max(state.longestAwayMs || 0, awayMs);
+          remember(`BACK AFTER ${shortDuration(awayMs)}`, now);
+          setMessage(`BACK ${shortDuration(awayMs)}`, 2600);
+        } else if (state.visitCount <= 1) {
+          remember("FIRST VISIT", now);
+          setMessage(state.eggHatched ? "HELLO!" : "EGG!", 2200);
+        } else {
+          setMessage("HI AGAIN", 1600);
+        }
+
+        state.lastVisitAt = now;
+        state.lastSeenAt = now;
+      }
+
+      function recordCare(kind, memo) {
+        state.careScore = (state.careScore || 0) + 1;
+        state.lastCareAt = Date.now();
+        state.careActions = state.careActions || {};
+        state.careActions[kind] = (state.careActions[kind] || 0) + 1;
+        if (memo) remember(memo);
+      }
+
       function ageMinutes() {
+        if (!state.eggHatched) return 0;
         return Math.max(0, Math.floor((Date.now() - state.bornAt) / 60000));
       }
 
       function stageIndex() {
+        if (!state.eggHatched) return 0;
         const age = ageMinutes();
-        if (age < 2) return 0;
-        if (age < 8) return 1;
-        if (age < 18) return 2;
-        return 3;
+        if (age < 2) return 1;
+        if (age < 8) return 2;
+        if (age < 18) return 3;
+        return 4;
       }
 
       function setMessage(text, duration = 1700) {
@@ -324,7 +439,15 @@
         state.messageUntil = Date.now() + duration;
       }
 
+      function eggWaiting() {
+        if (state.eggHatched) return false;
+        const left = Math.max(0, Math.ceil((state.hatchAt - Date.now()) / 1000));
+        setMessage(left > 0 ? `HATCH ${left}` : "HATCH!", 1300);
+        return true;
+      }
+
       function getNeedCount() {
+        if (!state.eggHatched) return 0;
         return [
           state.hunger < 25,
           state.happy < 25,
@@ -336,10 +459,55 @@
         ].filter(Boolean).length;
       }
 
+      function chooseAdultForm() {
+        const misses = state.careMisses || 0;
+        const trained = state.discipline || 0;
+        const healthy = state.health || 0;
+        const happy = state.happy || 0;
+        if (misses <= 6 && trained >= 58 && healthy >= 70 && happy >= 55) return ADULT_FORMS[0];
+        if (misses <= 14 && healthy >= 50) return ADULT_FORMS[1];
+        if (trained < 35 || happy < 35) return ADULT_FORMS[2];
+        return ADULT_FORMS[3];
+      }
+
+      function handleLifecycle(now = Date.now()) {
+        if (!state.eggHatched && now >= state.hatchAt) {
+          state.eggHatched = true;
+          state.bornAt = state.hatchAt;
+          state.lastTick = state.hatchAt;
+          state.lastPoop = state.hatchAt;
+          state.lastStage = 1;
+          state.form = "BABY";
+          remember("HATCHED");
+          setMessage("HATCH!", 2600);
+          feedback("evolve");
+        }
+
+        const currentStage = stageIndex();
+        if (state.lastStage === undefined || state.lastStage === null) {
+          state.lastStage = currentStage;
+        }
+
+        if (state.eggHatched && currentStage !== state.lastStage) {
+          state.lastStage = currentStage;
+          state.form = currentStage === 4 ? chooseAdultForm() : STAGES[currentStage];
+          remember(`GREW ${state.form}`);
+          setMessage(currentStage === 4 ? state.form : `GROW ${STAGES[currentStage]}`, 2800);
+          feedback("evolve");
+        }
+      }
+
       function applyTime() {
         const now = Date.now();
+        handleLifecycle(now);
+        if (!state.eggHatched) {
+          state.lastTick = now;
+          state.lastPoop = now;
+          return;
+        }
         const elapsed = Math.max(0, Math.min(now - state.lastTick, 1000 * 60 * 60 * 3));
-        const units = Math.floor(elapsed / (TICK_SECONDS * 1000));
+        const rawUnits = Math.floor(elapsed / (TICK_SECONDS * 1000));
+        const units = Math.min(rawUnits, OFFLINE_CAP_TICKS);
 
         if (units > 0) {
           for (let i = 0; i < units; i += 1) {
@@ -363,7 +531,7 @@
             }
           }
 
-          state.lastTick += units * TICK_SECONDS * 1000;
+          state.lastTick += rawUnits * TICK_SECONDS * 1000;
         }
 
         const poopUnits = Math.floor(Math.max(0, now - state.lastPoop) / (POOP_SECONDS * 1000));
@@ -374,17 +542,23 @@
 
         if (!state.sick && (state.health < 35 || (state.poop >= 3 && Math.random() < 0.02))) {
           state.sick = true;
+          remember("GOT SICK");
           setMessage("SICK!", 2200);
+          feedback("bad");
         }
 
         if (!state.sleeping && state.energy < 8) {
           state.sleeping = true;
+          remember("FELL ASLEEP");
           setMessage("SLEEPY", 1800);
         }
+
+        handleLifecycle(now);
       }
 
       function press(key) {
         applyTime();
+        feedback("press");
 
         if (key === "c") {
           if (state.mode !== "idle") {
@@ -408,7 +582,7 @@
           }
         } else if (state.mode === "status") {
           if (key === "a" || key === "b") {
-            state.page = (state.page + 1) % 3;
+            state.page = (state.page + 1) % STATUS_PAGES;
           }
         } else if (state.mode === "food") {
           if (key === "a") {
@@ -458,6 +632,7 @@
       }
 
       function feed(index) {
+        if (eggWaiting()) return;
         if (state.sleeping) {
           setMessage("ZZZ...", 1200);
           return;
@@ -471,35 +646,47 @@
           state.hunger = stat(state.hunger, 24);
           state.happy = stat(state.happy, 3);
           state.weight = Math.min(99, state.weight + 1);
+          recordCare("meals", "ATE MEAL");
+          feedback("care");
           setMessage("MEAL", 1300);
         } else {
           state.hunger = stat(state.hunger, 8);
           state.happy = stat(state.happy, 16);
           state.health = stat(state.health, state.health > 55 ? -1 : 0);
           state.weight = Math.min(99, state.weight + 2);
+          recordCare("snacks", "ATE SNACK");
+          feedback("care");
           setMessage("SNACK", 1300);
         }
         state.mode = "idle";
       }
 
       function clean() {
+        if (eggWaiting()) return;
         if (state.poop > 0) {
           state.poop = 0;
           state.hygiene = stat(state.hygiene, 34);
           state.happy = stat(state.happy, 5);
+          recordCare("cleans", "CLEANED");
+          feedback("care");
           setMessage("CLEAN!", 1600);
         } else {
           state.hygiene = stat(state.hygiene, 18);
           state.happy = stat(state.happy, -1);
+          recordCare("cleans", "BATH");
+          feedback("care");
           setMessage("BATH", 1400);
         }
       }
 
       function medicate() {
+        if (eggWaiting()) return;
         if (state.sick || state.health < 60) {
           state.sick = false;
           state.health = stat(state.health, 34);
           state.happy = stat(state.happy, -4);
+          recordCare("meds", "TOOK MEDS");
+          feedback("care");
           setMessage("MED OK", 1600);
         } else {
           setMessage("NO NEED", 1400);
@@ -507,31 +694,42 @@
       }
 
       function toggleLight() {
+        if (eggWaiting()) return;
         state.lightOn = !state.lightOn;
         if (!state.lightOn) {
           state.sleeping = true;
           state.energy = stat(state.energy, 3);
+          recordCare("lights", "LIGHTS OUT");
+          feedback("care");
           setMessage("LIGHT OFF", 1600);
         } else {
           if (state.energy > 35) state.sleeping = false;
+          recordCare("lights", "LIGHTS ON");
+          feedback("care");
           setMessage("LIGHT ON", 1600);
         }
       }
 
       function discipline() {
+        if (eggWaiting()) return;
         const needsAttention = getNeedCount() > 0;
         if (needsAttention) {
           state.discipline = stat(state.discipline, 8);
           state.happy = stat(state.happy, -3);
+          recordCare("trains", "TRAINED");
+          feedback("care");
           setMessage("TRAINED", 1600);
         } else {
           state.happy = stat(state.happy, -8);
           state.discipline = stat(state.discipline, 3);
+          recordCare("trains", "SCOLDED");
+          feedback("bad");
           setMessage("HEY!", 1300);
         }
       }
 
       function attention() {
+        if (eggWaiting()) return;
         const needs = [];
         if (state.hunger < 25) needs.push("FOOD");
         if (state.happy < 25) needs.push("GAME");
@@ -542,6 +740,7 @@
       }
 
       function startGame() {
+        if (eggWaiting()) return;
         if (state.sleeping) {
           setMessage("ZZZ...", 1200);
           return;
@@ -581,6 +780,8 @@
               state.happy = stat(state.happy, score * 5 + (score >= 3 ? 10 : 0));
               state.energy = stat(state.energy, -8);
               state.weight = Math.max(2, state.weight - (score >= 3 ? 1 : 0));
+              recordCare("games", `PLAY ${score}/5`);
+              feedback(score >= 3 ? "win" : "care");
               setMessage(`SCORE ${score}/5`, 2100);
               state.mode = "idle";
               state.game = null;
@@ -595,6 +796,51 @@
             state.game.result = "";
             draw();
           }, 950);
+        }
+      }
+
+      function feedback(kind) {
+        if (typeof navigator !== "undefined" && navigator.vibrate) {
+          const pattern = kind === "bad" ? [25, 30, 25] : kind === "evolve" ? [20, 35, 20] : 12;
+          navigator.vibrate(pattern);
+        }
+
+        if (kind === "bad") {
+          beep(180, 0.08);
+          setTimeout(() => beep(120, 0.1), 90);
+        } else if (kind === "evolve") {
+          beep(520, 0.07);
+          setTimeout(() => beep(780, 0.07), 90);
+          setTimeout(() => beep(1040, 0.09), 180);
+        } else if (kind === "care") {
+          beep(660, 0.055);
+          setTimeout(() => beep(880, 0.055), 70);
+        } else if (kind === "win") {
+          beep(720, 0.055);
+          setTimeout(() => beep(960, 0.065), 75);
+        } else {
+          beep(860, 0.035);
+        }
+      }
+
+      function beep(frequency, duration) {
+        const Audio = window.AudioContext || window.webkitAudioContext;
+        if (!Audio) return;
+        try {
+          audioCtx = audioCtx || new Audio();
+          if (audioCtx.state === "suspended") audioCtx.resume();
+          const oscillator = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          oscillator.type = "square";
+          oscillator.frequency.value = frequency;
+          gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+          oscillator.connect(gain);
+          gain.connect(audioCtx.destination);
+          oscillator.start();
+          oscillator.stop(audioCtx.currentTime + duration);
+        } catch {
+          audioCtx = null;
         }
       }
 
@@ -749,9 +995,13 @@
 
       function drawPet(cx, cy, ink) {
         const stage = stageIndex();
+        if (stage === 0) {
+          drawEgg(cx, cy, ink);
+          return;
+        }
         const bounce = state.sleeping ? 0 : (animationTick % 34 < 17 ? 0 : 1);
         const sprite = getSprite(stage);
-        const scale = stage === 0 ? 2 : 2;
+        const scale = 2;
         const width = Math.max(...sprite.map((row) => row.length)) * scale;
         const height = sprite.length * scale;
         const x = Math.round(cx - width / 2);
@@ -771,10 +1021,56 @@
           } else {
             drawFace(x + Math.round(width / 2) - 7, y + Math.round(height / 2) - 6, mood, bg, ink, 2);
           }
+          if (stage === 4) drawAdultForm(x, y, width, height, ink, bg);
         } else {
           text("Z", x + width + 4, y - 3, 8, ink);
           text("z", x + width + 10, y - 10, 7, ink);
         }
+      }
+
+      function drawAdultForm(x, y, width, height, ink, bg) {
+        const form = state.form || "MAME";
+        if (form === "MAME") {
+          px(x + 11, y - 5, 4, 7, ink);
+          px(x + width - 15, y - 5, 4, 7, ink);
+        } else if (form === "KUCHI") {
+          px(x + Math.round(width / 2) - 4, y + Math.round(height / 2) + 7, 8, 4, bg);
+          px(x + Math.round(width / 2) - 7, y + Math.round(height / 2) + 9, 14, 2, bg);
+        } else if (form === "MASK") {
+          px(x + Math.round(width / 2) - 13, y + Math.round(height / 2) - 8, 26, 8, bg);
+          px(x + Math.round(width / 2) - 11, y + Math.round(height / 2) - 6, 7, 3, ink);
+          px(x + Math.round(width / 2) + 4, y + Math.round(height / 2) - 6, 7, 3, ink);
+        } else {
+          px(x + 5, y + height - 4, width - 10, 2, ink);
+          px(x + width - 7, y + height - 8, 5, 5, ink);
+        }
+      }
+
+      function drawEgg(cx, cy, ink) {
+        const wobble = animationTick % 48 < 24 ? 0 : 1;
+        const x = Math.round(cx - 13 + wobble);
+        const y = Math.round(cy - 18);
+        const egg = [
+          "....1111....",
+          "..11111111..",
+          ".1111111111.",
+          "111111111111",
+          "111111111111",
+          "111111111111",
+          ".1111111111.",
+          "..11111111..",
+          "...111111...",
+          "....1111...."
+        ];
+        for (let row = 0; row < egg.length; row += 1) {
+          for (let col = 0; col < egg[row].length; col += 1) {
+            if (egg[row][col] === "1") px(x + col * 2, y + row * 2, 2, 2, ink);
+          }
+        }
+        px(x + 8, y + 10, 8, 2, "#b9c986");
+        px(x + 12, y + 14, 10, 2, "#b9c986");
+        const left = Math.max(0, Math.ceil((state.hatchAt - Date.now()) / 1000));
+        text(left > 0 ? `${left}` : "!", cx - 4, cy + 14, 8, ink);
       }
 
       function moodFace() {
@@ -806,7 +1102,7 @@
       }
 
       function getSprite(stage) {
-        if (stage === 0) {
+        if (stage === 1) {
           return [
             "....1111....",
             "..11111111..",
@@ -819,7 +1115,7 @@
             "...11..11..."
           ];
         }
-        if (stage === 1) {
+        if (stage === 2) {
           return [
             "..11......11..",
             ".1111....1111.",
@@ -835,7 +1131,7 @@
             ".111..11..111."
           ];
         }
-        if (stage === 2) {
+        if (stage === 3) {
           return [
             "...11......11...",
             "..1111....1111..",
@@ -886,17 +1182,28 @@
           text(`WT ${state.weight}LB`, 88, 38, 8);
           bar(17, 55, state.hunger, "HUN");
           bar(17, 69, state.happy, "HAP");
-          text(`${STAGES[stageIndex()]}`, 58, 86, 8);
+          text(clipText(state.form || STAGES[stageIndex()], 12), 52, 86, 8);
         } else if (page === 1) {
           bar(17, 40, state.energy, "NRG");
           bar(17, 54, state.hygiene, "HYG");
           bar(17, 68, state.health, "HLT");
           bar(17, 82, state.discipline, "TRN");
-        } else {
+        } else if (page === 2) {
           text(state.sick ? "SICK: YES" : "SICK: NO", 17, 42, 8);
           text(`MESS ${state.poop}`, 17, 56, 8);
           text(`MISS ${state.careMisses}`, 17, 70, 8);
           text(getNeedCount() > 0 ? "CALLING!" : "CONTENT", 17, 84, 8);
+        } else if (page === 3) {
+          const memo = state.memories && state.memories[0];
+          text("MEMORY", 54, 38, 8);
+          text(memo ? clipText(memo.text, 17) : "NO MEMORY", 17, 56, 8);
+          text(memo ? `${shortDuration(Date.now() - memo.at)} AGO` : "", 17, 70, 8);
+          text(`CARE ${state.careScore || 0}`, 17, 84, 8);
+        } else {
+          text(`VISIT ${state.visitCount || 0}`, 17, 42, 8);
+          text(`LAST ${shortDuration(state.lastAwayMs || 0)}`, 17, 56, 8);
+          text(`LONG ${shortDuration(state.longestAwayMs || 0)}`, 17, 70, 8);
+          text(`GEN ${state.generation || 1}`, 17, 84, 8);
         }
       }
 
@@ -992,7 +1299,22 @@
         document.querySelectorAll(".control").forEach((button) => button.classList.remove("is-down"));
       });
 
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") {
+          save();
+        } else {
+          registerVisit();
+          applyTime();
+          save();
+        }
+      });
+
       window.addEventListener("beforeunload", save);
+      if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("./sw.js").catch(() => {});
+        });
+      }
       loop();
     })();
   </script>
