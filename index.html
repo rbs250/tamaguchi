@@ -349,6 +349,7 @@
       let state = load();
       let animationTick = 0;
       let audioCtx = null;
+      let action = null;
       const heldKeys = new Set();
       const lcdSprites = Object.fromEntries(LCD_ASSET_NAMES.map((name) => {
         const image = new Image();
@@ -464,6 +465,25 @@
         state.careActions = state.careActions || {};
         state.careActions[kind] = (state.careActions[kind] || 0) + 1;
         if (memo) remember(memo);
+      }
+
+      function setAction(kind, duration = 1200) {
+        const now = Date.now();
+        action = { kind, at: now, until: now + duration };
+      }
+
+      function activeAction() {
+        if (!action) return null;
+        if (Date.now() > action.until) {
+          action = null;
+          return null;
+        }
+        return action;
+      }
+
+      function actionProgress(current = activeAction()) {
+        if (!current) return 1;
+        return clamp((Date.now() - current.at) / Math.max(1, current.until - current.at), 0, 1);
       }
 
       function ageMinutes() {
@@ -626,6 +646,7 @@
         state.lightOn = true;
         remember(`${state.lastForm} LEFT`, now);
         setMessage(cause, 3200);
+        setAction("death", 2400);
         feedback("bad");
         save();
       }
@@ -653,6 +674,7 @@
           messageUntil: now + 2600
         };
         feedback("evolve");
+        setAction("new", 2400);
         save();
       }
 
@@ -667,6 +689,7 @@
           state.form = "BABY";
           remember("HATCHED");
           setMessage("HATCH!", 2600);
+          setAction("hatch", 2400);
           feedback("evolve");
         }
 
@@ -680,6 +703,7 @@
           state.form = currentStage === 4 ? chooseAdultForm() : STAGES[currentStage];
           remember(`GREW ${state.form}`);
           setMessage(currentStage === 4 ? state.form : `GROW ${STAGES[currentStage]}`, 2800);
+          setAction("evolve", 2600);
           feedback("evolve");
         }
       }
@@ -892,6 +916,7 @@
           answerCall("hunger");
           recordCare("meals", "ATE MEAL");
           feedback("care");
+          setAction("meal", 1200);
           setMessage("MEAL", 1300);
         } else {
           state.hunger = stat(state.hunger, 8);
@@ -901,6 +926,7 @@
           answerCall("hunger", "happy");
           recordCare("snacks", "ATE SNACK");
           feedback("care");
+          setAction("snack", 1200);
           setMessage("SNACK", 1300);
         }
         state.mode = "idle";
@@ -915,12 +941,14 @@
           answerCall("poop");
           recordCare("cleans", "CLEANED");
           feedback("care");
+          setAction("clean", 1400);
           setMessage("CLEAN!", 1600);
         } else {
           state.hygiene = stat(state.hygiene, 18);
           state.happy = stat(state.happy, -1);
           recordCare("cleans", "BATH");
           feedback("care");
+          setAction("clean", 1300);
           setMessage("BATH", 1400);
         }
       }
@@ -940,6 +968,7 @@
           }
           recordCare("meds", "TOOK MEDS");
           feedback("care");
+          setAction(cured ? "med-cure" : "med", 1400);
           setMessage(cured ? "MED OK" : "AGAIN", 1600);
         } else {
           setMessage("NO NEED", 1400);
@@ -959,6 +988,7 @@
           answerCall("light");
           recordCare("lights", "LIGHTS OUT");
           feedback("care");
+          setAction("sleep", 1200);
           setMessage("LIGHT OFF", 1600);
         } else {
           if (state.energy > 35) state.sleeping = false;
@@ -976,16 +1006,19 @@
           answerCall("discipline");
           recordCare("trains", "TRAINED");
           feedback("care");
+          setAction("train", 1200);
           setMessage("TRAINED", 1600);
         } else if (state.call) {
           state.happy = stat(state.happy, -6);
           feedback("bad");
+          setAction("wrong", 1200);
           setMessage(`${callLabel(state.call.kind)}!`, 1400);
         } else {
           state.happy = stat(state.happy, -7);
           state.discipline = stat(state.discipline, 1);
           recordCare("trains", "SCOLDED");
           feedback("bad");
+          setAction("scold", 1200);
           setMessage("NO CALL", 1300);
         }
       }
@@ -1078,6 +1111,7 @@
               answerCall("happy");
               recordCare("games", `PLAY ${score}/5`);
               feedback(score >= 3 ? "win" : "care");
+              setAction(score >= 3 ? "game-win" : "game-miss", 1600);
               setMessage(`SCORE ${score}/5`, 2100);
               state.mode = "idle";
               state.game = null;
@@ -1328,7 +1362,9 @@
           drawPoop(12 + i * 12, 91, ink);
         }
 
-        drawPet(75, 66, ink);
+        const center = petCenter();
+        drawPet(center.x, center.y, ink);
+        drawLifeEffects(center.x, center.y, ink, dim);
 
         if (state.sick) {
           if (!drawSprite("obj-sick", 114, 47, 16, 16)) {
@@ -1342,6 +1378,95 @@
         const hours = String(clock.getHours()).padStart(2, "0");
         const minutes = String(clock.getMinutes()).padStart(2, "0");
         text(`${hours}:${minutes}`, 123, 113, 7, ink);
+      }
+
+      function petCenter() {
+        const current = activeAction();
+        let x = 75;
+        let y = 66;
+
+        if (state.eggHatched && !state.sleeping && state.mode === "idle" && !state.dead) {
+          const walk = [0, 2, 4, 7, 10, 12, 10, 7, 4, 2, 0, -2, -5, -8, -10, -8, -5, -2];
+          x += walk[Math.floor(animationTick / 10) % walk.length];
+          y += Math.floor(animationTick / 16) % 2;
+        }
+
+        if (state.call && animationTick % 18 < 9) x += 2;
+
+        if (current) {
+          const p = actionProgress(current);
+          if (["meal", "snack", "clean", "med", "med-cure", "game-win", "hatch", "evolve", "new"].includes(current.kind)) {
+            y -= Math.round(Math.sin(p * Math.PI) * 5);
+          }
+          if (["wrong", "scold", "game-miss"].includes(current.kind)) {
+            x += Math.floor(animationTick / 3) % 2 ? -3 : 3;
+          }
+        }
+
+        return { x, y };
+      }
+
+      function drawLifeEffects(cx, cy, ink, dim) {
+        const current = activeAction();
+        const bg = dim ? "#5e6a4b" : "#b9c986";
+
+        if (state.call && animationTick % 36 < 25) {
+          if (!drawSprite("emo-call", cx + 27, cy - 24, 15, 15)) text("!", cx + 24, cy - 28, 11, ink);
+          drawMotionMark(cx - 25, cy - 10, ink, animationTick % 18 < 9 ? -1 : 1);
+        }
+
+        if (!current && !state.sleeping && state.mode === "idle") {
+          const mood = moodFace();
+          if (mood === "happy" && animationTick % 150 < 45) {
+            drawSprite("emo-heart", cx + 25, cy - 19, 11, 11);
+          } else if (mood === "sad" && animationTick % 140 < 45) {
+            drawSprite("obj-tear", cx + 22, cy - 11, 8, 10);
+          } else if (mood === "neutral" && animationTick % 210 < 42) {
+            drawSprite("emo-music", cx + 23, cy - 18, 11, 13);
+          }
+        }
+
+        if (!current) return;
+        const p = actionProgress(current);
+        const wave = Math.round(Math.sin(p * Math.PI) * 6);
+
+        if (current.kind === "meal" || current.kind === "snack") {
+          const item = current.kind === "meal" ? "obj-meal" : "obj-snack";
+          drawSprite(item, cx - 27 + Math.round(p * 14), cy + 4 - wave, 17, 13);
+          drawSprite("emo-heart", cx + 24, cy - 18 - wave, 11, 11);
+        } else if (current.kind === "clean") {
+          drawSprite("obj-bubbles", cx - 24, cy - 14 - wave, 15, 14);
+          drawSprite("obj-bubbles", cx + 23, cy - 2 - Math.round(wave / 2), 13, 12);
+          drawSprite("obj-sparkle", cx, cy - 25, 12, 12);
+        } else if (current.kind === "med" || current.kind === "med-cure") {
+          drawSprite("obj-med", cx - 24 + Math.round(p * 12), cy - 9, 14, 14);
+          drawSprite(current.kind === "med-cure" ? "obj-sparkle" : "emo-sick", cx + 25, cy - 18, 13, 13);
+        } else if (current.kind === "train" || current.kind === "scold" || current.kind === "wrong") {
+          drawSprite(current.kind === "train" ? "emo-alert" : "emo-angry", cx + 24, cy - 19, 13, 13);
+          drawMotionMark(cx - 25, cy - 5, ink, -1);
+          drawMotionMark(cx + 25, cy - 5, ink, 1);
+        } else if (current.kind === "game-win") {
+          drawSprite("game-burst", cx, cy - 24, 18, 18);
+          drawSprite("emo-heart", cx + 25, cy - 12, 12, 12);
+        } else if (current.kind === "game-miss") {
+          drawSprite("obj-tear", cx + 24, cy - 9, 9, 11);
+        } else if (["hatch", "evolve", "new"].includes(current.kind)) {
+          drawSprite("obj-sparkle", cx - 25, cy - 18 - wave, 13, 13);
+          drawSprite("obj-sparkle", cx + 25, cy - 5, 11, 11);
+          drawSprite("game-burst", cx, cy - 27, 18, 18);
+        } else if (current.kind === "sleep") {
+          drawSprite("obj-sleep", cx + 24, cy - 20, 16, 14);
+        }
+
+        if (p > 0.55 && ["meal", "snack", "med-cure", "game-win", "evolve"].includes(current.kind)) {
+          px(cx - 18, cy + 20, 36, 1, bg);
+        }
+      }
+
+      function drawMotionMark(x, y, ink, side = 1) {
+        px(x, y, 2, 2, ink);
+        px(x + side * 4, y + 4, 2, 2, ink);
+        px(x + side * 7, y + 9, 2, 2, ink);
       }
 
       function drawDeath(ink) {
@@ -1371,9 +1496,13 @@
           drawEgg(cx, cy, ink);
           return;
         }
-        const bounce = state.sleeping ? 0 : (animationTick % 34 < 17 ? 0 : 1);
+        const lively = !state.sleeping && !state.dead;
+        const bounce = lively ? (animationTick % 28 < 14 ? 0 : 2) : 0;
         const spriteName = petSpriteName(stage);
         if (drawSprite(spriteName, cx, cy + bounce, 36, 36)) {
+          const bg = (!state.lightOn && state.sleeping) ? "#5e6a4b" : "#b9c986";
+          drawPetExpression(cx, cy + bounce, stage, ink, bg);
+          drawPetFeet(cx, cy + bounce, stage, ink);
           if (!state.sleeping && (moodFace() === "sad" || moodFace() === "sick")) {
             drawSprite(moodFace() === "sick" ? "emo-sick" : "emo-sad", cx + 24, cy - 12, 13, 13);
           } else if (state.sleeping) {
@@ -1407,6 +1536,43 @@
           text("Z", x + width + 4, y - 3, 8, ink);
           text("z", x + width + 10, y - 10, 7, ink);
         }
+      }
+
+      function drawPetExpression(cx, cy, stage, ink, bg) {
+        if (state.sleeping) return;
+        const mood = moodFace();
+        const blink = animationTick % 190 > 176;
+        const faceY = Math.round(cy - (stage === 1 ? 2 : 5));
+        const faceX = Math.round(cx - 7);
+
+        px(faceX - 1, faceY - 1, 16, 12, ink);
+        if (blink) {
+          px(faceX + 1, faceY + 3, 4, 1, bg);
+          px(faceX + 10, faceY + 3, 4, 1, bg);
+        } else {
+          px(faceX + 2, faceY + 1, 3, 4, bg);
+          px(faceX + 10, faceY + 1, 3, 4, bg);
+        }
+
+        if (mood === "happy") {
+          px(faceX + 5, faceY + 8, 5, 1, bg);
+          px(faceX + 4, faceY + 7, 1, 1, bg);
+          px(faceX + 10, faceY + 7, 1, 1, bg);
+        } else if (mood === "sad" || mood === "sick") {
+          px(faceX + 4, faceY + 8, 7, 1, bg);
+          px(faceX + 3, faceY + 9, 1, 1, bg);
+          px(faceX + 11, faceY + 9, 1, 1, bg);
+        } else {
+          px(faceX + 5, faceY + 8, 6, 1, bg);
+        }
+      }
+
+      function drawPetFeet(cx, cy, stage, ink) {
+        if (state.sleeping || stage === 0) return;
+        const step = Math.floor(animationTick / 10) % 2;
+        const y = Math.round(cy + (stage === 1 ? 15 : 18));
+        px(cx - 13 + step * 2, y, 7, 2, ink);
+        px(cx + 6 - step * 2, y, 7, 2, ink);
       }
 
       function petSpriteName(stage) {
