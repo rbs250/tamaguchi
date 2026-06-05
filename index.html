@@ -1272,11 +1272,11 @@
       function drawTopIcons(dim) {
         const ink = dim ? "#2f3828" : "#2a3420";
         for (let i = 0; i < menus.length; i += 1) {
-          const x = 2 + i * 19;
+          const x = 1 + i * 20;
           const active = state.mode === "idle" && state.menuIndex === i;
           if (active) {
-            outline(x - 1, 0, 19, 17, ink);
-            px(x + 3, 15, 11, 2, ink);
+            outline(x - 1, 0, 20, 18, ink);
+            px(x + 4, 16, 10, 2, ink);
           }
           drawIcon(menus[i].key, x, 1, ink);
         }
@@ -1300,7 +1300,7 @@
           discipline: "icon-discipline",
           attention: "icon-attention"
         };
-        if (drawSpriteAt(iconMap[key], x, y, 17, 14)) return;
+        if (drawSpriteAt(iconMap[key], x, y, 18, 16)) return;
         const c = color;
         if (key === "status") {
           px(x, y + 8, 3, 3, c);
