@@ -36,8 +36,13 @@
       box-sizing: border-box;
     }
 
+    html {
+      min-height: 100%;
+    }
+
     body {
       min-height: 100vh;
+      min-height: 100svh;
       margin: 0;
       display: grid;
       place-items: center;
@@ -50,11 +55,11 @@
         #9dcbd0;
       color: var(--ink);
       font-family: "Courier New", Consolas, monospace;
-      padding: 22px;
+      padding: clamp(6px, 1.4vw, 16px);
     }
 
     .wrap {
-      width: min(94vw, 620px);
+      width: min(100%, 900px);
       display: grid;
       justify-items: center;
       gap: 8px;
@@ -62,7 +67,8 @@
 
     .device {
       position: relative;
-      width: min(94vw, 590px);
+      width: min(98vw, 860px);
+      width: min(98vw, 92svh, 860px);
       aspect-ratio: 1;
       border: 0;
       border-radius: 0;
@@ -109,7 +115,9 @@
       border: 0;
       border-radius: 3px;
       background: var(--screen);
-      box-shadow: inset 0 0 0 2px rgba(42, 52, 32, 0.12);
+      box-shadow:
+        inset 0 0 0 2px rgba(42, 52, 32, 0.18),
+        inset 0 0 18px rgba(42, 52, 32, 0.1);
       overflow: hidden;
     }
 
@@ -193,16 +201,17 @@
       font-weight: 900;
       text-align: center;
       text-shadow: 1px 2px 0 #6f2a2e;
-      font-size: clamp(0.45rem, 1.7vw, 0.78rem);
+      font-size: clamp(0.5rem, 1.7vw, 0.95rem);
     }
 
     @media (max-width: 440px) {
       body {
-        padding: 12px;
+        padding: 4px;
       }
 
       .device {
-        width: min(98vw, 590px);
+        width: min(99vw, 860px);
+        width: min(99vw, 94svh, 860px);
       }
     }
   </style>
