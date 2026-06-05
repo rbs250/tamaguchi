@@ -260,7 +260,7 @@
       const ADULT_FORMS = ["MAME", "KUCHI", "MASK", "NYORO"];
       const LCD_ASSET_NAMES = [
         "pet-egg", "pet-baby", "pet-child", "pet-teen", "pet-adult-mame", "pet-adult-kuchi", "pet-adult-mask", "pet-adult-nyoro",
-        "icon-status", "icon-food", "icon-game", "icon-clean", "icon-med", "icon-light", "icon-discipline", "icon-attention",
+        "menu-status-v2", "menu-food-v2", "menu-game-v2", "menu-clean-v2", "menu-med-v2", "menu-light-v2", "menu-discipline-v2", "menu-attention-v2",
         "obj-poop", "obj-meal", "obj-snack", "obj-med", "obj-sparkle", "obj-sick", "obj-sleep", "obj-bubbles", "obj-heart", "obj-tear", "obj-clock", "obj-battery",
         "game-cup-left", "game-cup-right", "game-star", "game-ball", "game-flag", "game-burst", "game-arrow-left", "game-arrow-right",
         "emo-smile", "emo-sad", "emo-sick", "emo-angry", "emo-sleepy", "emo-alert", "emo-music", "emo-heart", "emo-crack", "emo-call"
@@ -1291,14 +1291,14 @@
 
       function drawIcon(key, x, y, color) {
         const iconMap = {
-          status: "icon-status",
-          food: "icon-food",
-          play: "icon-game",
-          clean: "icon-clean",
-          med: "icon-med",
-          light: "icon-light",
-          discipline: "icon-discipline",
-          attention: "icon-attention"
+          status: "menu-status-v2",
+          food: "menu-food-v2",
+          play: "menu-game-v2",
+          clean: "menu-clean-v2",
+          med: "menu-med-v2",
+          light: "menu-light-v2",
+          discipline: "menu-discipline-v2",
+          attention: "menu-attention-v2"
         };
         if (drawSpriteAt(iconMap[key], x, y, 18, 16)) return;
         const c = color;

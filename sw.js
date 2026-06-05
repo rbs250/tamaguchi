@@ -1,4 +1,4 @@
-const CACHE_NAME = "tamaguchi-v13";
+const CACHE_NAME = "tamaguchi-v14";
 const ASSETS = [
   "./",
   "./index.html",
@@ -17,14 +17,14 @@ const ASSETS = [
   "./assets/lcd/pet-adult-kuchi.png",
   "./assets/lcd/pet-adult-mask.png",
   "./assets/lcd/pet-adult-nyoro.png",
-  "./assets/lcd/icon-status.png",
-  "./assets/lcd/icon-food.png",
-  "./assets/lcd/icon-game.png",
-  "./assets/lcd/icon-clean.png",
-  "./assets/lcd/icon-med.png",
-  "./assets/lcd/icon-light.png",
-  "./assets/lcd/icon-discipline.png",
-  "./assets/lcd/icon-attention.png",
+  "./assets/lcd/menu-status-v2.png",
+  "./assets/lcd/menu-food-v2.png",
+  "./assets/lcd/menu-game-v2.png",
+  "./assets/lcd/menu-clean-v2.png",
+  "./assets/lcd/menu-med-v2.png",
+  "./assets/lcd/menu-light-v2.png",
+  "./assets/lcd/menu-discipline-v2.png",
+  "./assets/lcd/menu-attention-v2.png",
   "./assets/lcd/obj-poop.png",
   "./assets/lcd/obj-meal.png",
   "./assets/lcd/obj-snack.png",
