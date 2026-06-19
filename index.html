@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- Tamaguchi v2 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -264,9 +265,43 @@
       const CALL_RESPONSE_SECONDS = 150;
       const CALL_COOLDOWN_SECONDS = 80;
       const DEATH_AGE_MINUTES = 96;
-      const STATUS_PAGES = 6;
+      const STATUS_PAGES = 8;
+      const MAX_COINS = 99;
+      const NAME_MAX = 6;
       const STAGES = ["EGG", "BABY", "CHILD", "TEEN", "ADULT"];
       const ADULT_FORMS = ["MAME", "KUCHI", "MASK", "NYORO"];
+      const GAME_KINDS = ["move", "number", "catch"];
+
+      // Food menu: first two are free classics, the rest cost coins.
+      const FOODS = [
+        { key: "meals", label: "MEAL", cost: 0, hunger: 24, happy: 3, health: 0, weight: 1, sprite: "obj-meal" },
+        { key: "snacks", label: "SNACK", cost: 0, hunger: 8, happy: 16, health: -2, weight: 2, sprite: "obj-snack" },
+        { key: "fruits", label: "FRUIT", cost: 4, hunger: 16, happy: 6, health: 8, weight: 0, sprite: "obj-heart" },
+        { key: "cakes", label: "CAKE", cost: 6, hunger: 14, happy: 26, health: -1, weight: 3, sprite: "obj-snack" }
+      ];
+
+      // Chiptune jingles: [frequency, duration, gapBefore] per note.
+      const TUNES = {
+        press: [[860, 0.035, 0]],
+        care: [[660, 0.055, 0], [880, 0.055, 70]],
+        win: [[720, 0.055, 0], [960, 0.065, 75], [1180, 0.08, 150]],
+        bad: [[180, 0.08, 0], [120, 0.1, 90]],
+        evolve: [[520, 0.07, 0], [660, 0.06, 90], [780, 0.07, 170], [1040, 0.1, 260]],
+        badge: [[780, 0.06, 0], [1040, 0.06, 80], [1320, 0.1, 160]],
+        death: [[440, 0.1, 0], [330, 0.1, 130], [262, 0.16, 270]]
+      };
+
+      // Badges: unlocked once per save, each worth a small coin reward.
+      const BADGES = [
+        { id: "hatch", label: "HATCH", test: (s) => s.eggHatched },
+        { id: "adult", label: "ADULT", test: () => stageIndex() === 4 },
+        { id: "elder", label: "ELDER", test: () => ageMinutes() >= 60 },
+        { id: "gen3", label: "GEN 3", test: (s) => (s.generation || 1) >= 3 },
+        { id: "streak3", label: "STREAK 3", test: (s) => (s.streakDays || 0) >= 3 },
+        { id: "perfect", label: "PERFECT", test: (s) => (s.perfectGames || 0) >= 1 },
+        { id: "rich", label: "RICH", test: (s) => (s.coins || 0) >= 30 },
+        { id: "clean10", label: "TIDY", test: (s) => ((s.careActions || {}).cleans || 0) >= 10 }
+      ];
       const LCD_ASSET_NAMES = [
         "pet-egg", "pet-baby", "pet-child", "pet-teen", "pet-adult-mame", "pet-adult-kuchi", "pet-adult-mask", "pet-adult-nyoro",
         "menu-status-v2", "menu-food-v2", "menu-game-v2", "menu-clean-v2", "menu-med-v2", "menu-light-v2", "menu-discipline-v2", "menu-attention-v2",
@@ -289,7 +324,7 @@
       const defaults = () => {
         const now = Date.now();
         return {
-        version: 3,
+        version: 4,
         createdAt: now,
         firstSeenAt: now,
         bornAt: now,
@@ -324,12 +359,22 @@
         careActions: {
           meals: 0,
           snacks: 0,
+          fruits: 0,
+          cakes: 0,
           games: 0,
           cleans: 0,
           meds: 0,
           lights: 0,
           trains: 0
         },
+        name: "",
+        named: false,
+        nameDraft: null,
+        coins: 0,
+        muted: false,
+        badges: {},
+        perfectGames: 0,
+        lastBonusDay: "",
         hunger: 72,
         happy: 70,
         energy: 78,
@@ -368,36 +413,60 @@
       }));
       registerVisit();
       applyTime(true);
+      maybePromptName();
       save();
 
-      function load() {
+      function hydrate(saved) {
         const base = defaults();
-        try {
-          const raw = localStorage.getItem(SAVE_KEY);
-          if (!raw) return base;
-          const saved = JSON.parse(raw);
-          if (!saved) return base;
-          const merged = { ...base, ...saved, mode: "idle", game: null };
-          merged.version = 3;
-          merged.memories = Array.isArray(saved.memories) ? saved.memories.slice(0, 8) : [];
-          merged.careActions = { ...base.careActions, ...(saved.careActions || {}) };
-          merged.call = saved.call || null;
-          if (saved.eggHatched === undefined) {
-            merged.eggHatched = true;
-            merged.hatchAt = merged.bornAt;
-            merged.lastStage = Math.max(1, saved.lastStage || 1);
-            merged.form = saved.form || STAGES[Math.min(merged.lastStage, STAGES.length - 1)];
-          }
-          return merged;
-        } catch {
-          return base;
+        if (!saved || typeof saved !== "object") return base;
+        const merged = { ...base, ...saved, mode: "idle", game: null, nameDraft: null };
+        merged.version = 4;
+        merged.memories = Array.isArray(saved.memories) ? saved.memories.slice(0, 8) : [];
+        merged.careActions = { ...base.careActions, ...(saved.careActions || {}) };
+        merged.badges = saved.badges && typeof saved.badges === "object" ? saved.badges : {};
+        merged.coins = clamp(Math.round(saved.coins || 0), 0, MAX_COINS);
+        merged.name = String(saved.name || "").slice(0, NAME_MAX);
+        merged.call = saved.call || null;
+        if (saved.eggHatched === undefined) {
+          merged.eggHatched = true;
+          merged.hatchAt = merged.bornAt;
+          merged.lastStage = Math.max(1, saved.lastStage || 1);
+          merged.form = saved.form || STAGES[Math.min(merged.lastStage, STAGES.length - 1)];
         }
+        // Pets from before naming existed skip the prompt.
+        if (saved.named === undefined && saved.eggHatched !== undefined && saved.eggHatched) {
+          merged.named = true;
+        }
+        return merged;
+      }
+
+      function readSave(key) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) return null;
+          const saved = JSON.parse(raw);
+          return saved && typeof saved === "object" ? saved : null;
+        } catch {
+          return null;
+        }
+      }
+
+      function load() {
+        const saved = readSave(SAVE_KEY) || readSave(`${SAVE_KEY}.bak`);
+        return hydrate(saved);
       }
 
       function save() {
         state.lastSeenAt = Date.now();
-        const saved = { ...state, game: null, mode: "idle" };
-        localStorage.setItem(SAVE_KEY, JSON.stringify(saved));
+        const saved = { ...state, game: null, mode: "idle", nameDraft: null };
+        try {
+          const payload = JSON.stringify(saved);
+          const previous = localStorage.getItem(SAVE_KEY);
+          if (previous) localStorage.setItem(`${SAVE_KEY}.bak`, previous);
+          localStorage.setItem(SAVE_KEY, payload);
+        } catch {
+          // Storage full or blocked; keep playing in memory.
+        }
       }
 
       function clamp(value, min = 0, max = 100) {
@@ -452,6 +521,14 @@
           if (state.streakDays > 1) remember(`STREAK ${state.streakDays}D`, now);
         }
 
+        let bonus = 0;
+        if (state.lastBonusDay !== today) {
+          state.lastBonusDay = today;
+          bonus = 2 + Math.min(5, state.streakDays || 1);
+          addCoins(bonus);
+          remember(`BONUS $${bonus}`, now);
+        }
+
         if (awayMs >= VISIT_GAP_SECONDS * 1000) {
           state.totalAwayMs = Math.max(0, state.totalAwayMs || 0) + awayMs;
           state.longestAwayMs = Math.max(state.longestAwayMs || 0, awayMs);
@@ -461,7 +538,12 @@
           remember("FIRST VISIT", now);
           setMessage(state.eggHatched ? "HELLO!" : "EGG!", 2200);
         } else {
-          setMessage("HI AGAIN", 1600);
+          setMessage(petName() ? `HI ${petName()}` : "HI AGAIN", 1600);
+        }
+
+        if (bonus > 0) {
+          setMessage(`DAILY +$${bonus}`, 2400);
+          setAction("coin", 1400);
         }
 
         state.lastVisitAt = now;
@@ -474,6 +556,38 @@
         state.careActions = state.careActions || {};
         state.careActions[kind] = (state.careActions[kind] || 0) + 1;
         if (memo) remember(memo);
+      }
+
+      function addCoins(amount) {
+        state.coins = clamp(Math.round((state.coins || 0) + amount), 0, MAX_COINS);
+      }
+
+      function spendCoins(amount) {
+        if ((state.coins || 0) < amount) return false;
+        state.coins -= amount;
+        return true;
+      }
+
+      function badgeCount() {
+        return BADGES.filter((badge) => state.badges && state.badges[badge.id]).length;
+      }
+
+      function checkBadges() {
+        if (!state.badges) state.badges = {};
+        let unlocked = true;
+        while (unlocked) {
+          unlocked = false;
+          for (const badge of BADGES) {
+            if (state.badges[badge.id] || !badge.test(state)) continue;
+            state.badges[badge.id] = Date.now();
+            addCoins(5);
+            remember(`BADGE ${badge.label}`);
+            setMessage(`BADGE ${badge.label}`, 2400);
+            setAction("coin", 1400);
+            feedback("badge");
+            unlocked = true;
+          }
+        }
       }
 
       function setAction(kind, duration = 1200) {
@@ -521,6 +635,52 @@
       function setMessage(text, duration = 1700) {
         state.message = text;
         state.messageUntil = Date.now() + duration;
+      }
+
+      function petName() {
+        return state.named && state.name ? clipText(state.name, NAME_MAX + 1) : "";
+      }
+
+      function maybePromptName() {
+        if (!state.eggHatched || state.dead || state.named || state.mode === "name") return;
+        state.mode = "name";
+        state.nameDraft = { letters: [], letterIndex: 0 };
+      }
+
+      function finishNaming() {
+        const draft = state.nameDraft;
+        const typed = draft && draft.letters.length ? draft.letters.join("") : "";
+        state.name = typed || "PET";
+        state.named = true;
+        state.nameDraft = null;
+        state.mode = "idle";
+        remember(`NAMED ${state.name}`);
+        setMessage(`HI ${state.name}!`, 2400);
+        feedback("win");
+      }
+
+      function nameInput(key) {
+        if (!state.nameDraft) state.nameDraft = { letters: [], letterIndex: 0 };
+        const draft = state.nameDraft;
+        const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        if (key === "a") {
+          // Cycle A-Z, then the END marker.
+          draft.letterIndex = (draft.letterIndex + 1) % (ALPHABET.length + 1);
+        } else if (key === "b") {
+          if (draft.letterIndex === ALPHABET.length) {
+            finishNaming();
+            return;
+          }
+          draft.letters.push(ALPHABET[draft.letterIndex]);
+          draft.letterIndex = 0;
+          if (draft.letters.length >= NAME_MAX) finishNaming();
+        } else if (key === "c") {
+          if (draft.letters.length > 0) {
+            draft.letters.pop();
+          } else {
+            finishNaming();
+          }
+        }
       }
 
       function eggWaiting() {
@@ -646,7 +806,7 @@
         state.diedAt = now;
         state.deathCause = cause;
         state.lastDeathCause = cause;
-        state.lastForm = state.form || state.lastForm || "PET";
+        state.lastForm = petName() || state.form || state.lastForm || "PET";
         state.bestAgeMinutes = Math.max(state.bestAgeMinutes || 0, lived);
         state.call = null;
         state.game = null;
@@ -656,7 +816,7 @@
         remember(`${state.lastForm} LEFT`, now);
         setMessage(cause, 3200);
         setAction("death", 2400);
-        feedback("bad");
+        feedback("death");
         save();
       }
 
@@ -675,10 +835,16 @@
           longestAwayMs: old.longestAwayMs || 0,
           streakDays: old.streakDays || 0,
           lastVisitDay: old.lastVisitDay || "",
+          lastBonusDay: old.lastBonusDay || "",
           bestAgeMinutes: Math.max(old.bestAgeMinutes || 0, ageMinutes()),
           lastForm: old.lastForm || old.form || "",
           lastDeathCause: old.deathCause || old.lastDeathCause || "",
           memories: [{ at: now, text: `GEN ${nextGeneration} EGG` }, ...carriedMemories].slice(0, 8),
+          // Player-level progress survives across generations.
+          coins: old.coins || 0,
+          badges: old.badges || {},
+          perfectGames: old.perfectGames || 0,
+          muted: !!old.muted,
           message: "NEW EGG",
           messageUntil: now + 2600
         };
@@ -700,6 +866,7 @@
           setMessage("HATCH!", 2600);
           setAction("hatch", 2400);
           feedback("evolve");
+          maybePromptName();
         }
 
         const currentStage = stageIndex();
@@ -811,6 +978,7 @@
         }
 
         handleLifecycle(now);
+        checkBadges();
       }
 
       function press(key) {
@@ -823,6 +991,13 @@
           } else {
             setMessage("B NEW", 1800);
           }
+          save();
+          draw();
+          return;
+        }
+
+        if (state.mode === "name") {
+          nameInput(key);
           save();
           draw();
           return;
@@ -849,12 +1024,14 @@
             activateMenu(menus[state.menuIndex].key);
           }
         } else if (state.mode === "status") {
-          if (key === "a" || key === "b") {
+          if (key === "b" && state.page === STATUS_PAGES - 1) {
+            toggleSound();
+          } else if (key === "a" || key === "b") {
             state.page = (state.page + 1) % STATUS_PAGES;
           }
         } else if (state.mode === "food") {
           if (key === "a") {
-            state.foodIndex = state.foodIndex === 0 ? 1 : 0;
+            state.foodIndex = (state.foodIndex + 1) % FOODS.length;
           } else if (key === "b") {
             feed(state.foodIndex);
           }
@@ -914,30 +1091,34 @@
           return;
         }
 
-        if (index === 0) {
-          if (state.hunger > 94) {
-            setMessage("FULL", 1300);
-            return;
-          }
-          state.hunger = stat(state.hunger, 24);
-          state.happy = stat(state.happy, 3);
-          state.weight = Math.min(99, state.weight + 1);
-          answerCall("hunger");
-          recordCare("meals", "ATE MEAL");
-          feedback("care");
-          setAction("meal", 1200);
-          setMessage("MEAL", 1300);
-        } else {
-          state.hunger = stat(state.hunger, 8);
-          state.happy = stat(state.happy, 16);
-          state.health = stat(state.health, state.health > 55 ? -2 : 0);
-          state.weight = Math.min(99, state.weight + 2);
-          answerCall("hunger", "happy");
-          recordCare("snacks", "ATE SNACK");
-          feedback("care");
-          setAction("snack", 1200);
-          setMessage("SNACK", 1300);
+        const food = FOODS[index] || FOODS[0];
+        if (food.hunger >= 20 && state.hunger > 94) {
+          setMessage("FULL", 1300);
+          return;
         }
+        if (food.cost > 0 && !spendCoins(food.cost)) {
+          setMessage(`NEED $${food.cost}`, 1500);
+          feedback("bad");
+          return;
+        }
+
+        state.hunger = stat(state.hunger, food.hunger);
+        state.happy = stat(state.happy, food.happy);
+        if (food.health < 0) {
+          state.health = stat(state.health, state.health > 55 ? food.health : 0);
+        } else if (food.health > 0) {
+          state.health = stat(state.health, food.health);
+        }
+        state.weight = Math.min(99, state.weight + food.weight);
+        if (food.happy >= 15) {
+          answerCall("hunger", "happy");
+        } else {
+          answerCall("hunger");
+        }
+        recordCare(food.key, `ATE ${food.label}`);
+        feedback("care");
+        setAction(index === 0 ? "meal" : "snack", 1200);
+        setMessage(food.label, 1300);
         state.mode = "idle";
       }
 
@@ -1058,8 +1239,8 @@
           setMessage("TIRED", 1300);
           return;
         }
-        const kind = state.nextGameKind === "number" ? "number" : "move";
-        state.nextGameKind = kind === "move" ? "number" : "move";
+        const kind = GAME_KINDS.includes(state.nextGameKind) ? state.nextGameKind : GAME_KINDS[0];
+        state.nextGameKind = GAME_KINDS[(GAME_KINDS.indexOf(kind) + 1) % GAME_KINDS.length];
         state.mode = "game";
         state.game = newGameRound(kind, { round: 1, score: 0 });
       }
@@ -1084,6 +1265,23 @@
             result: ""
           };
         }
+        if (kind === "catch") {
+          // Timing game: stop the sweeping marker inside the zone.
+          // Faster sweep and narrower zone every round.
+          const zoneW = Math.max(10, 30 - carry.round * 4);
+          return {
+            kind,
+            round: carry.round,
+            score: carry.score,
+            startAt: Date.now(),
+            speed: 0.8 + carry.round * 0.25,
+            zoneW,
+            zoneX: Math.round(16 + Math.random() * (128 - zoneW)),
+            stopX: null,
+            reveal: false,
+            result: ""
+          };
+        }
         return {
           kind: "move",
           round: carry.round,
@@ -1095,45 +1293,81 @@
         };
       }
 
+      function gameMarkerX(game, at = Date.now()) {
+        const t = Math.max(0, at - game.startAt) / 1000 * game.speed;
+        const phase = t % 2;
+        const norm = phase < 1 ? phase : 2 - phase;
+        return Math.round(16 + norm * 128);
+      }
+
       function playInput(key) {
         const game = state.game;
-        if (!game) return;
+        if (!game || game.reveal) return;
 
-        if (key === "a" && !game.reveal) {
+        if (game.kind === "catch") {
+          if (key !== "b") return;
+          const x = gameMarkerX(game);
+          game.stopX = x;
+          resolveRound(x >= game.zoneX && x <= game.zoneX + game.zoneW);
+          return;
+        }
+
+        if (key === "a") {
           game.pick = game.pick === 0 ? 1 : 0;
         }
 
-        if (key === "b" && !game.reveal) {
+        if (key === "b") {
           const win = game.kind === "number"
             ? (game.pick === 0 ? game.next > game.current : game.next < game.current)
             : game.pick === game.target;
-          game.reveal = true;
-          game.result = win ? "HIT!" : "MISS";
-          if (win) game.score += 1;
-          setTimeout(() => {
-            if (state.mode !== "game" || !state.game) return;
-            if (state.game.round >= 5) {
-              const score = state.game.score;
-              state.happy = stat(state.happy, score * 5 + (score >= 3 ? 10 : 0));
-              state.energy = stat(state.energy, -8);
-              state.weight = Math.max(2, state.weight - (score >= 3 ? 1 : 0));
-              answerCall("happy");
-              recordCare("games", `PLAY ${score}/5`);
-              feedback(score >= 3 ? "win" : "care");
-              setAction(score >= 3 ? "game-win" : "game-miss", 1600);
-              setMessage(`SCORE ${score}/5`, 2100);
-              state.mode = "idle";
-              state.game = null;
-              save();
-              draw();
-              return;
-            }
-            state.game = newGameRound(state.game.kind || "move", {
-              round: state.game.round + 1,
-              score: state.game.score
-            });
-            draw();
-          }, 950);
+          resolveRound(win);
+        }
+      }
+
+      function resolveRound(win) {
+        const game = state.game;
+        if (!game) return;
+        game.reveal = true;
+        game.result = win ? "HIT!" : "MISS";
+        if (win) game.score += 1;
+        setTimeout(() => {
+          if (state.mode !== "game" || !state.game) return;
+          if (state.game.round >= 5) {
+            finishGame();
+            return;
+          }
+          state.game = newGameRound(state.game.kind || "move", {
+            round: state.game.round + 1,
+            score: state.game.score
+          });
+          draw();
+        }, 950);
+      }
+
+      function finishGame() {
+        const score = state.game.score;
+        state.happy = stat(state.happy, score * 5 + (score >= 3 ? 10 : 0));
+        state.energy = stat(state.energy, -8);
+        state.weight = Math.max(2, state.weight - (score >= 3 ? 1 : 0));
+        const earned = score + (score >= 5 ? 3 : 0);
+        if (earned > 0) addCoins(earned);
+        if (score >= 5) state.perfectGames = (state.perfectGames || 0) + 1;
+        answerCall("happy");
+        recordCare("games", `PLAY ${score}/5`);
+        feedback(score >= 3 ? "win" : "care");
+        setAction(score >= 3 ? "game-win" : "game-miss", 1600);
+        setMessage(earned > 0 ? `SCORE ${score}/5 +$${earned}` : `SCORE ${score}/5`, 2100);
+        state.mode = "idle";
+        state.game = null;
+        save();
+        draw();
+      }
+
+      function playTune(name) {
+        const notes = TUNES[name] || TUNES.press;
+        for (const [frequency, duration, gap] of notes) {
+          if (gap > 0) setTimeout(() => beep(frequency, duration), gap);
+          else beep(frequency, duration);
         }
       }
 
@@ -1142,26 +1376,18 @@
           const pattern = kind === "bad" ? [25, 30, 25] : kind === "evolve" ? [20, 35, 20] : 12;
           navigator.vibrate(pattern);
         }
+        playTune(TUNES[kind] ? kind : "press");
+      }
 
-        if (kind === "bad") {
-          beep(180, 0.08);
-          setTimeout(() => beep(120, 0.1), 90);
-        } else if (kind === "evolve") {
-          beep(520, 0.07);
-          setTimeout(() => beep(780, 0.07), 90);
-          setTimeout(() => beep(1040, 0.09), 180);
-        } else if (kind === "care") {
-          beep(660, 0.055);
-          setTimeout(() => beep(880, 0.055), 70);
-        } else if (kind === "win") {
-          beep(720, 0.055);
-          setTimeout(() => beep(960, 0.065), 75);
-        } else {
-          beep(860, 0.035);
-        }
+      function toggleSound() {
+        state.muted = !state.muted;
+        setMessage(state.muted ? "SOUND OFF" : "SOUND ON", 1500);
+        if (!state.muted) playTune("care");
+        save();
       }
 
       function beep(frequency, duration) {
+        if (state.muted) return;
         const Audio = window.AudioContext || window.webkitAudioContext;
         if (!Audio) return;
         try {
@@ -1274,8 +1500,49 @@
         if (state.mode === "status") drawStatus();
         if (state.mode === "food") drawFood();
         if (state.mode === "game") drawGame();
+        if (state.mode === "name") drawNamePrompt();
+
+        // Soft evening tint on the LCD.
+        const hour = new Date().getHours();
+        if (!dim && (hour >= 21 || hour < 7)) {
+          px(0, 0, W, H, "rgba(42, 52, 32, 0.1)");
+        }
 
         drawMessage(dim);
+        drawEvolveFlash();
+      }
+
+      function drawEvolveFlash() {
+        const current = activeAction();
+        if (!current || !["hatch", "evolve", "new"].includes(current.kind)) return;
+        if (actionProgress(current) < 0.3 && animationTick % 6 < 3) {
+          px(0, 0, W, H, "#e9f2c6");
+        }
+      }
+
+      function drawNamePrompt() {
+        const draft = state.nameDraft || { letters: [], letterIndex: 0 };
+        const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const isEnd = draft.letterIndex === ALPHABET.length;
+        px(9, 20, 142, 88, "#b9c986");
+        outline(9, 20, 142, 88);
+        text("NAME?", 57, 25, 9);
+        for (let i = 0; i < NAME_MAX; i += 1) {
+          const x = 28 + i * 18;
+          px(x, 58, 14, 2);
+          const ch = draft.letters[i];
+          if (ch) {
+            text(ch, x + 3, 44, 11);
+          } else if (i === draft.letters.length && animationTick % 32 < 22) {
+            if (isEnd) {
+              text("OK", x, 46, 8);
+            } else {
+              text(ALPHABET[draft.letterIndex], x + 3, 44, 11);
+            }
+          }
+        }
+        text("A=ABC B=PICK", 26, 72, 8);
+        text(isEnd ? "B = DONE!" : "C=UNDO", 26, 88, 8);
       }
 
       function drawTopIcons(dim) {
@@ -1466,6 +1733,9 @@
           drawSprite("game-burst", cx, cy - 27, 18, 18);
         } else if (current.kind === "sleep") {
           drawSprite("obj-sleep", cx + 24, cy - 20, 16, 14);
+        } else if (current.kind === "coin") {
+          drawSprite("obj-sparkle", cx + 24, cy - 18 - wave, 13, 13);
+          text("$", cx - 28, cy - 18 - wave, 10, ink);
         }
 
         if (p > 0.55 && ["meal", "snack", "med-cure", "game-win", "evolve"].includes(current.kind)) {
@@ -1755,7 +2025,9 @@
           text(`WT ${state.weight}LB`, 88, 38, 8);
           heartMeter(17, 55, state.hunger, "HUN");
           heartMeter(17, 70, state.happy, "HAP");
-          text(clipText(state.form || STAGES[stageIndex()], 12), 52, 86, 8);
+          const formLabel = state.form || STAGES[stageIndex()];
+          text(clipText(petName() ? `${petName()} ${formLabel}` : formLabel, 17), 17, 86, 8);
+          text(`$${state.coins || 0}`, 143, 86, 8, "#2a3420", "right");
         } else if (page === 1) {
           bar(17, 40, state.energy, "NRG");
           bar(17, 54, state.hygiene, "HYG");
@@ -1780,24 +2052,42 @@
           text(`STREAK ${state.streakDays || 0}D`, 17, 70, 8);
           drawSprite("obj-battery", 119, 84, 15, 8);
           text(`GEN ${state.generation || 1}`, 17, 84, 8);
-        } else {
+        } else if (page === 5) {
           text("LEGACY", 55, 38, 8);
           text(`BEST ${state.bestAgeMinutes || 0}Y`, 17, 54, 8);
           text(`ANS ${state.callsAnswered || 0}`, 17, 68, 8);
           text(clipText(state.lastForm ? `LAST ${state.lastForm}` : `LONG ${shortDuration(state.longestAwayMs || 0)}`, 17), 17, 82, 8);
+        } else if (page === 6) {
+          drawSprite("game-star", 28, 41, 13, 13);
+          text("BADGES", 54, 38, 8);
+          text(`WON ${badgeCount()}/${BADGES.length}`, 17, 56, 8);
+          const earned = BADGES.filter((badge) => state.badges && state.badges[badge.id])
+            .sort((a, b) => state.badges[b.id] - state.badges[a.id]);
+          text(earned[0] ? clipText(`NEW ${earned[0].label}`, 17) : "PLAY MORE!", 17, 70, 8);
+          text(`$${state.coins || 0}`, 17, 84, 8);
+        } else {
+          text("SETTINGS", 47, 38, 8);
+          text(`SOUND ${state.muted ? "OFF" : "ON"}`, 17, 56, 8);
+          text("B = TOGGLE", 17, 70, 8);
+          text(`GAMES ${(state.careActions && state.careActions.games) || 0}`, 17, 84, 8);
         }
       }
 
       function drawFood() {
-        px(24, 30, 112, 58, "#b9c986");
-        outline(24, 30, 112, 58);
-        text("FOOD", 62, 36, 9);
-        text(state.foodIndex === 0 ? ">" : " ", 39, 54, 9);
-        text("MEAL", 52, 54, 9);
-        drawSprite("obj-meal", 108, 58, 15, 11);
-        text(state.foodIndex === 1 ? ">" : " ", 39, 69, 9);
-        text("SNACK", 52, 69, 9);
-        drawSprite("obj-snack", 110, 73, 15, 10);
+        px(20, 22, 120, 84, "#b9c986");
+        outline(20, 22, 120, 84);
+        text("FOOD", 30, 27, 8);
+        text(`$${state.coins || 0}`, 130, 27, 8, "#2a3420", "right");
+        FOODS.forEach((food, i) => {
+          const y = 41 + i * 15;
+          text(state.foodIndex === i ? ">" : " ", 27, y, 8);
+          text(food.label, 38, y, 8);
+          if (food.cost > 0) {
+            text(`$${food.cost}`, 130, y, 8, "#2a3420", "right");
+          } else {
+            drawSprite(food.sprite, 120, y + 4, 14, 11);
+          }
+        });
       }
 
       function drawGame() {
@@ -1805,9 +2095,26 @@
         if (!game) return;
         px(9, 20, 142, 88, "#b9c986");
         outline(9, 20, 142, 88);
-        text(game.kind === "number" ? "HIGH LOW" : "DIRECTION", 42, 25, 8);
+        const title = game.kind === "number" ? "HIGH LOW" : game.kind === "catch" ? "CATCH IT" : "DIRECTION";
+        text(title, 42, 25, 8);
         text(`${game.round}/5`, 18, 38, 8);
         text(`SCORE ${game.score}`, 82, 38, 8);
+
+        if (game.kind === "catch") {
+          const x = game.reveal && game.stopX !== null ? game.stopX : gameMarkerX(game);
+          outline(14, 66, 132, 20);
+          px(game.zoneX, 68, game.zoneW, 16);
+          px(game.zoneX + 2, 70, Math.max(1, game.zoneW - 4), 12, "#b9c986");
+          px(x - 1, 62, 3, 28);
+          px(x - 3, 60, 7, 3);
+          if (game.reveal) {
+            text(game.result, 66, 49, 9);
+            if (game.result === "HIT!") drawSprite("game-star", game.zoneX + Math.round(game.zoneW / 2), 56, 13, 13);
+          } else {
+            text("B = STOP", 57, 95, 8);
+          }
+          return;
+        }
 
         if (game.kind === "number") {
           text(`${game.current}`, 73, 52, 20);
@@ -1909,7 +2216,80 @@
         });
       });
 
+      function exportSave() {
+        try {
+          save();
+          const payload = localStorage.getItem(SAVE_KEY);
+          if (!payload) throw new Error("empty");
+          const blob = new Blob([payload], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = "tamaguchi-save.json";
+          link.click();
+          URL.revokeObjectURL(url);
+          setMessage("SAVED FILE", 1800);
+        } catch {
+          setMessage("SAVE FAIL", 1500);
+        }
+        draw();
+      }
+
+      // Drop an exported save file onto the page to restore it.
+      document.addEventListener("dragover", (event) => event.preventDefault());
+      document.addEventListener("drop", (event) => {
+        event.preventDefault();
+        const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+        if (!file) return;
+        file.text().then((raw) => {
+          const data = JSON.parse(raw);
+          if (!data || typeof data !== "object" || data.version === undefined) throw new Error("bad save");
+          state = hydrate(data);
+          applyTime();
+          maybePromptName();
+          save();
+          setMessage("LOADED!", 2000);
+          feedback("win");
+          draw();
+        }).catch(() => {
+          setMessage("BAD FILE", 1600);
+          draw();
+        });
+      });
+
       document.addEventListener("keydown", (event) => {
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+        if (state.mode === "name" && /^[a-zA-Z]$/.test(event.key)) {
+          // Type the name directly on a keyboard.
+          event.preventDefault();
+          if (!state.nameDraft) state.nameDraft = { letters: [], letterIndex: 0 };
+          if (state.nameDraft.letters.length < NAME_MAX) {
+            state.nameDraft.letters.push(event.key.toUpperCase());
+            state.nameDraft.letterIndex = 0;
+            if (state.nameDraft.letters.length >= NAME_MAX) finishNaming();
+            save();
+            draw();
+          }
+          return;
+        }
+        if (state.mode === "name" && event.key === "Enter") {
+          event.preventDefault();
+          finishNaming();
+          save();
+          draw();
+          return;
+        }
+        if (event.key === "m" || event.key === "M") {
+          toggleSound();
+          draw();
+          return;
+        }
+        if (event.key === "s" || event.key === "S") {
+          exportSave();
+          return;
+        }
+
         const map = {
           ArrowLeft: "a",
           ArrowRight: "a",
